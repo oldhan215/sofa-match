@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>沙發空間精算師 V10 - 深度累加邏輯版</title>
+    <style>
+        :root { --primary: #2c3e50; --accent: #27ae60; --blue: #2980b9; --bg: #f8f9fa; }
+        body { font-family: -apple-system, sans-serif; padding: 10px; background-color: var(--bg); max-width: 600px; margin: auto; color: #333; padding-bottom: 150px; }
+        .card { background: white; padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        h2 { font-size: 0.95rem; margin: 0 0 12px 0; color: var(--primary); border-left: 5px solid var(--blue); padding-left: 10px; }
+        .fabric-selector { display: flex; gap: 8px; margin-bottom: 12px; }
+        .fabric-btn { flex: 1; padding: 10px; border: 2px solid #ddd; border-radius: 8px; background: white; cursor: pointer; text-align: center; font-weight: bold; font-size: 0.9rem; }
+        .fabric-btn.active { border-color: var(--accent); background: #f0fff4; color: var(--accent); }
+        select, .input-text { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; margin-bottom: 10px; background-color: #fff; box-sizing: border-box; }
+        .add-panel { display: flex; flex-wrap: wrap; gap: 4px; }
+        .btn-add { background: var(--blue); color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; flex: 1 1 30%; min-width: 100px; }
+        .module-row { display: flex; align-items: center; background: #fff; padding: 10px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #eee; }
+        .module-info { flex: 1; }
+        .module-name { font-weight: bold; font-size: 0.9rem; display: block; }
+        .module-dim { font-size: 0.7rem; color: #888; }
+        .dir-select { padding: 6px; border-radius: 4px; border: 1px solid #ccc; font-size: 0.8rem; background: #eef2f7; width: 125px; font-weight: bold; }
+        .btn-del { color: #e74c3c; background: none; border: none; font-size: 1.5rem; cursor: pointer; margin-left: 10px; }
+        .dashboard { position: fixed; bottom: 0; left: 0; right: 0; background: var(--primary); color: white; display: grid; grid-template-columns: 1fr 1fr; padding: 15px; gap: 8px; box-shadow: 0 -4px 15px rgba(0,0,0,0.2); z-index: 1000; }
+        .stat-group { border-right: 1px solid rgba(255,255,255,0.2); }
+        .stat-group:last-child { border-right: none; }
+        .stat-label { font-size: 0.7rem; opacity: 0.8; display: block; }
+        .stat-val { font-size: 1.15rem; font-weight: bold; font-family: monospace; }
+        .highlight { color: #f1c40f; }
+        .recommend-card { border-left: 5px solid var(--accent); background: #fff; padding: 12px; margin-top: 8px; border-radius: 8px; border: 1px solid #eee; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>1. 布料與主座</h2>
+        <div class="fabric-selector">
+            <div id="btn-cat" class="fabric-btn active" onclick="setFabric('cat')">貓抓布/絨布</div>
+            <div id="btn-weave" class="fabric-btn" onclick="setFabric('weave')">平織布</div>
+        </div>
+        <select id="baseSofa" onchange="calculate()">
+            <option value="none" data-w="0" data-d="0" data-p-cat="0" data-p-weave="0">-- 從零拼裝 --</option>
+            <option value="2p" data-w="192" data-d="99" data-p-cat="28990" data-p-weave="26990">兩人座 (192×99)</option>
+            <option value="3p" data-w="230" data-d="99" data-p-cat="29990" data-p-weave="27990">三人座 (230×99)</option>
+            <option value="1line" data-w="288" data-d="99" data-p-cat="34990" data-p-weave="32990">一字型 (288×99)</option>
+            <option value="lshape" data-w="287" data-d="191" data-p-cat="43600" data-p-weave="39600">標準L型 (287×191)</option>
+        </select>
+    </div>
+
+    <div class="card">
+        <h2>2. 自由追加模組 (區分接法)</h2>
+        <div class="add-panel">
+            <button class="btn-add" onclick="addModule('single')">+單人座</button>
+            <button class="btn-add" onclick="addModule('corner')">+轉角</button>
+            <button class="btn-add" onclick="addModule('ottoman')">+腳凳</button>
+            <button class="btn-add" onclick="addModule('armW')">+扶手(寬)</button>
+            <button class="btn-add" onclick="addModule('armN')">+扶手(窄)</button>
+            <button class="btn-add" style="background:#7f8c8d" onclick="clearAll()">清空模組</button>
+        </div>
+        <div id="moduleList" style="margin-top: 10px;"></div>
+    </div>
+
+    <div class="card">
+        <h2>3. 牆面寬度推薦</h2>
+        <input type="number" id="targetW" class="input-text" placeholder="輸入牆面寬度 (cm)" oninput="recommend()">
+        <div id="rec-list"></div>
+    </div>
+
+    <div class="dashboard">
+        <div class="stat-group">
+            <span class="stat-label">總面寬 (Width)</span>
+            <span id="res-w" class="stat-val">0 cm</span>
+        </div>
+        <div class="stat-group">
+            <span id="label-d" class="stat-label">最大總深 (Depth)</span>
+            <span id="res-d" class="stat-val highlight">0 cm</span>
+        </div>
+        <div class="stat-group" style="grid-column: span 2; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 5px;">
+            <span class="stat-label">預估總金額</span>
+            <span id="res-price" class="stat-val highlight" style="font-size: 1.3rem;">$0</span>
+        </div>
+    </div>
+
+    <script>
+        let currentFabric = 'cat';
+        let modulesData = [];
+
+        const CONFIG = {
+            single:  { name: '單人座', w: 96,  d: 99,  pC: 9900,  pW: 8900 },
+            corner:  { name: '轉角',   w: 95,  d: 95,  pC: 13900, pW: 12900 },
+            ottoman: { name: '腳凳',   w: 106, d: 96,  pC: 6900,  pW: 6300 },
+            armW:    { name: '扶手(寬)', w: 115, d: 99, pC: 16900, pW: 15900 },
+            armN:    { name: '扶手(窄)', w: 96,  d: 99, pC: 15900, pW: 14900 }
+        };
+
+        function setFabric(type) {
+            currentFabric = type;
+            document.getElementById('btn-cat').classList.toggle('active', type === 'cat');
+            document.getElementById('btn-weave').classList.toggle('active', type === 'weave');
+            calculate();
+            recommend();
+        }
+
+        function addModule(type) {
+            modulesData.push({ id: Date.now(), type, dir: 'h' });
+            render();
+        }
+
+        function clearAll() { modulesData = []; render(); }
+
+        function removeModule(id) {
+            modulesData = modulesData.filter(m => m.id !== id);
+            render();
+        }
+
+        function changeDir(id, dir) {
+            modulesData.find(m => m.id === id).dir = dir;
+            calculate();
+        }
+
+        function render() {
+            const container = document.getElementById('moduleList');
+            container.innerHTML = "";
+            modulesData.forEach(m => {
+                const info = CONFIG[m.type];
+                const div = document.createElement('div');
+                div.className = 'module-row';
+                div.innerHTML = `
+                    <div class="module-info">
+                        <span class="module-name">${info.name}</span>
+                        <span class="module-dim">${info.w}x${info.d}cm</span>
+                    </div>
+                    <select class="dir-select" onchange="changeDir(${m.id}, this.value)">
+                        <option value="h" ${m.dir==='h'?'selected':''}>⬅接旁邊 (加寬)</option>
+                        <option value="v" ${m.dir==='v'?'selected':''}>⬇接前面 (累加深)</option>
+                    </select>
+                    <button class="btn-del" onclick="removeModule(${m.id})">×</button>
+                `;
+                container.appendChild(div);
+            });
+            calculate();
+        }
+
+        function calculate() {
+            const sofa = document.getElementById('baseSofa').selectedOptions[0];
+            const isCat = currentFabric === 'cat';
+
+            let baseW = parseInt(sofa.dataset.w) || 0;
+            let baseD = parseInt(sofa.dataset.d) || 0;
+            let totalPrice = isCat ? (parseInt(sofa.dataset.pCat) || 0) : (parseInt(sofa.dataset.pWeave) || 0);
+
+            let currentW = baseW;
+            let maxExtraD = 0; // 記錄縱向對接產生的額外長度
+
+            // 從零拼裝補正
+            if (baseD === 0 && modulesData.length > 0) {
+                baseD = 99; // 預設沙發模組深 99
+            }
+
+            modulesData.forEach(m => {
+                const info = CONFIG[m.type];
+                totalPrice += isCat ? info.pC : info.pW;
+
+                if (m.dir === 'h') {
+                    // 接旁邊：寬度增加，深度不累加 (除非模組本身比沙發深)
+                    currentW += info.w;
+                    // 如果是接旁邊的腳凳，深度是它的寬度106或深度96？依據圖片應為寬度併排
+                } else {
+                    // 接前面：視為貴妃椅。寬度不變(對齊)，深度累加
+                    // 腳凳對接時，通常是 96 那面貼著沙發，所以深度會增加 106
+                    let extra = (m.type === 'ottoman') ? info.w : info.w; 
+                    if (extra > maxExtraD) maxExtraD = extra;
+                }
+            });
+
+            // 最終深度 = 基礎深 + 最長的那個對接模組
+            let finalD = (baseD === 0 && modulesData.length === 0) ? 0 : baseD + maxExtraD;
+
+            document.getElementById('res-w').innerText = `${currentW} cm`;
+            document.getElementById('res-d').innerText = `${finalD} cm`;
+            document.getElementById('res-price').innerText = `$` + totalPrice.toLocaleString();
+        }
+
+        function recommend() {
+            const target = parseInt(document.getElementById('targetW').value);
+            const list = document.getElementById('rec-list');
+            list.innerHTML = "";
+            if (!target || target < 100) return;
+            const isCat = currentFabric === 'cat';
+            const baseOptions = [
+                { id: "一字型", w: 288, pC: 34990, pW: 32990 },
+                { id: "L型", w: 287, pC: 43600, pW: 39600 },
+                { id: "三人座", w: 230, pC: 29990, pW: 27990 },
+                { id: "兩人座", w: 192, pC: 28990, pW: 26990 }
+            ];
+            baseOptions.forEach(opt => {
+                if (target >= opt.w) {
+                    let price = isCat ? opt.pC : opt.pW;
+                    let remain = target - opt.w;
+                    let extra = Math.floor(remain / 96);
+                    let div = document.createElement('div');
+                    div.className = 'recommend-card';
+                    div.innerHTML = `<b>✅ ${opt.id} - $${price.toLocaleString()}</b><br>面寬 ${opt.w}cm | 剩 ${remain}cm | 可追加 ${extra} 個單人座`;
+                    list.appendChild(div);
+                }
+            });
+        }
+        calculate();
+    </script>
+</body>
+</html>
